@@ -69,20 +69,34 @@ class CafaProcessor:
         with open(self.fasta_path, 'r') as f:
             for line in f:
                 line = line.strip()
+                if not line: continue # Boş satırları atla
+
                 if line.startswith(">"): # baştaki ">" işareti yeni bir proteini gösterir bunu referans alacağız geçiştlerde
                     if current_id:
-                        seqs[current_id] = "".join(current_seq)
-                    # Başlık örneği: >sp|A0A0C5B5G6|MOTSC_HUMAN...
-                    # '|' işaretine göre bölüyoruz -> ['>sp', 'A0A0C5B5G6', 'MOTSC_HUMAN...']
-                    # 1. indeksi (ortadaki ID'yi) alıyoruz.
-                    parts = line.split('|') #proteinlerde boşluklar yerine düz çizgi ayracı kullanıulmış ona göre ayarlama yapacağız
+                        full_seq = "".join(current_seq)
+                        if len(full_seq) > 0:
+                            seqs[current_id] = full_seq
+                    
+                    # YENİ BAŞLIK İŞLEME
+                    # Örnek: >sp|A0A0C5B5G6|MOTSC_HUMAN...
+                    parts = line.split('|')
                     if len(parts) >= 2:
+                        # Pipe varsa ortadakini al
                         current_id = parts[1]
                     else:
-                        # Eğer format farklıysa eski yöntemi dene (Yedek plan)
+                        # Pipe yoksa boşluğa kadar al (>P12345 Protein...)
                         current_id = line[1:].split()[0]
+                    
+                    current_seq = [] # Diziyi sıfırla
+                else:
+                    # Dizi satırı
+                    current_seq.append(line)
+            
+            # Döngü bittiğinde SON proteini kaydetmeyi unutma
             if current_id:
-                seqs[current_id] = "".join(current_seq)
+                full_seq = "".join(current_seq)
+                if len(full_seq) > 0:
+                    seqs[current_id] = full_seq
         
         print(f"{len(seqs)} protein hafızaya alındı.")
         return seqs

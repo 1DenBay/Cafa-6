@@ -1,3 +1,4 @@
+# 1D CNN modeli
 import torch
 import torch.nn as nn
 
@@ -13,7 +14,7 @@ class CafaCNN(nn.Module):
         
         # 2. KONVOLÜSYON KATMANI (Büyüteç / Desen Arayıcı)
         # in_channels=128 : Embedding'den gelen özellik sayısı.
-        # out_channels=256 : Modelin arayacağı farklı desen sayısı (256 farklı filtre).
+        # out_channels=256 : Modelin arayacağı farklı desen sayısı (256 farklı filtre). Yani aynı anda 256 farklı özellik araması yapar.
         # kernel_size=9   : Büyüteç genişliği. Yan yana 9 amino asidi aynı anda inceler.
         self.conv1 = nn.Conv1d(in_channels=embed_dim, out_channels=256, kernel_size=9, padding=4)
         
@@ -23,11 +24,12 @@ class CafaCNN(nn.Module):
         
         # 4. POOLING (Özetleme)
         # AdaptiveMaxPool1d(1) -> Tüm dizi boyunca bulunan 'en güçlü' sinyali alır.
-        # 1024 uzunluğundaki diziyi tek bir vektöre indirger.
+        # 1024 uzunluğundaki diziyi tek ve en güçlü bir vektöre indirger.
         self.pool = nn.AdaptiveMaxPool1d(1)
         
         # 5. SINIFLANDIRMA (Karar Verme)
-        # Çıkarılan özete bakıp etiket tahminlerini (olasılıklarını) üretir.
+        # Çıkarılan özete bakıp 1500 farklı etiket ile tahminlerini (olasılıklarını) üretir.
+        # her etiket için bir skor üretilmiştir. Skor yükseliğine göre uyum da o kadar yüksektir.
         self.classifier = nn.Linear(256, num_labels)
 
     def forward(self, x):
@@ -37,7 +39,7 @@ class CafaCNN(nn.Module):
         x = self.embedding(x)  
         # Şekil: [Batch, 1024, 128]
         
-        # Adım 2: Boyutları Düzenle (PyTorch CNN kuralı)
+        # Adım 2: Boyutları Düzenle (PyTorch CNN kuralı) -> konvülasyon adımı için gereklidir
         # PyTorch'un CNN katmanı, kanalları (128 özelliği) ortada ister.
         # (Batch, Uzunluk, Özellik) -> (Batch, Özellik, Uzunluk) yapıyoruz.
         x = x.permute(0, 2, 1) 
