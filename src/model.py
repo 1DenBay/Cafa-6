@@ -27,15 +27,21 @@ class CafaCNN(nn.Module):
         self.relu2 = nn.ReLU()
         self.dropout2 = nn.Dropout(0.3) # Yine %30 Unutkanlık
         
-        # 3. POOLING (Özetleme)
-        # AdaptiveMaxPool1d(1) -> Tüm dizi boyunca bulunan 'en güçlü' sinyali alır.
-        # 1024 uzunluğundaki diziyi tek ve en güçlü bir vektöre indirger.
-        self.pool = nn.AdaptiveMaxPool1d(1)
+        # --- 3. LSTM KATMANI (Hafıza) ---
+        # CNN'den çıkan 256 özelliği alır, zaman içindeki ilişkisine bakar.
+        # hidden_size=128: Hafıza kapasitesi.
+        # bidirectional=True: Çift yönlü okuma (Hem ileri hem geri).
+        # Bu yüzden çıktı boyutu 128 * 2 = 256 olacak.
+        self.lstm = nn.LSTM(input_size=512, 
+                            hidden_size=128, 
+                            num_layers=1, 
+                            batch_first=True, 
+                            bidirectional=True)
         
         # 4. SINIFLANDIRMA (Karar Verme)
         # Çıkarılan özete bakıp 1500 farklı etiket ile tahminlerini (olasılıklarını) üretir.
         # her etiket için bir skor üretilmiştir. Skor yükseliğine göre uyum da o kadar yüksektir.
-        self.classifier = nn.Linear(512, num_labels)
+        self.classifier = nn.Linear(128 * 2, num_labels)
 
     def forward(self, x):
         # x'in şekli: [Batch_Size, 1024] (Örn: 32 protein)
@@ -61,12 +67,21 @@ class CafaCNN(nn.Module):
         x = self.relu2(x)
         x = self.dropout2(x)
         
-        # Adım 3: Düzleştirme ve özetleme (Gereksiz boyutu at)
-        x = self.pool(x)                # -> [Batch, 512, 1]
-        x = x.squeeze(-1) 
-        # Şekil: [Batch, 256]
+        # LSTM BÖLÜMÜ
+        # 1. Boyut Çevirme: LSTM, zaman boyutunu (1024) ortada ister.
+        # (Batch, Özellik, Zaman) -> (Batch, Zaman, Özellik)
+        x = x.permute(0, 2, 1)          # -> [Batch, 1024, 256]
         
-        # Adım 4: Son Karar
+        # 2. Hafızaya Alma
+        # output: Tüm zaman adımlarındaki hafıza durumu
+        output, (hn, cn) = self.lstm(x) # -> [Batch, 1024, 256] (128 ileri + 128 geri)
+        
+        # 3. Özetleme (Max Pooling over Time)
+        # 1024 adımın tamamına bak, en güçlü sinyali al.
+        # (dim=1 yani zaman ekseninde maksimumu alıyoruz)
+        x, _ = torch.max(output, dim=1) # -> [Batch, 256]
+        
+        # Son Karar
         logits = self.classifier(x) 
         # Şekil: [Batch, num_labels] -> Her etiket için bir puan
         
