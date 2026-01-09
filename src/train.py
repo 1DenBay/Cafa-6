@@ -70,9 +70,12 @@ def train():
     # Bu sayede model "hepsine 0 basayım" tembelliğinden vazgeçer.
     pos_weight = torch.ones([NUM_LABELS]).to(device) * 10
     # Hakem (Loss) ve Antrenör (Optimizer)
-    criterion = nn.BCEWithLogitsLoss(model.parameters(), lr=LEARNING_RATE) # Çoklu etiket için özel hata ölçer
+    criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
     
     optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
+
+    # Planlayıcı (Her 3 turda hızı düşür)
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=3, gamma=0.5)
 
     # En iyi skoru takip etmek için
     best_f1 = 0.0
@@ -101,7 +104,8 @@ def train():
             optimizer.step()
             total_loss += loss.item()
             
-            avg_train_loss = total_loss / len(train_loader)
+        scheduler.step() # Hızı güncelle
+        avg_train_loss = total_loss / len(train_loader)
 
         # B. SINAV (VALIDATION)
         # Dropout kapanır, model sadece bildiğini okur.
@@ -151,3 +155,8 @@ def train():
             os.makedirs(os.path.dirname(save_path), exist_ok=True)
             torch.save(model.state_dict(), save_path)
             print(f"    💾 Yeni rekor! Model kaydedildi. (Skor: {val_f1:.4f})")
+    
+    print(f"\n🏆 En İyi F1 Skoru: {best_f1:.4f}")
+
+if __name__ == "__main__":
+    train()

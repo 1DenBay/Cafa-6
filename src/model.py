@@ -2,6 +2,53 @@
 import torch
 import torch.nn as nn
 
+# --- [YENİ] 1. RESNET BLOĞU (Akıllı Tuğla) ---
+# Bu sınıfı ana modelin içinde defalarca kullanacağız.
+class ResidualBlock(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size=9, padding=4):
+        super(ResidualBlock, self).__init__()
+        
+        # A. ANA YOL (İşlem Hattı)
+        # Conv -> BatchNorm -> ReLU -> Dropout -> Conv -> BatchNorm
+        self.conv1 = nn.Conv1d(in_channels, out_channels, kernel_size, padding=padding)
+        self.bn1 = nn.BatchNorm1d(out_channels) # [YENİ] Veriyi normalize eder (Hizalar)
+        self.relu = nn.ReLU()
+        self.dropout = nn.Dropout(0.3)
+        
+        self.conv2 = nn.Conv1d(out_channels, out_channels, kernel_size, padding=padding)
+        self.bn2 = nn.BatchNorm1d(out_channels)
+        
+        # B. KESTİRME YOL (Shortcut / Identity)
+        # Eğer giriş (örn: 128) ve çıkış (örn: 256) sayıları farklıysa,
+        # ham veriyi de toplamak için boyutunu eşitlememiz gerekir (1x1 Conv ile).
+        self.shortcut = nn.Sequential()
+        if in_channels != out_channels:
+            self.shortcut = nn.Sequential(
+                nn.Conv1d(in_channels, out_channels, kernel_size=1), # Boyut eşitleyici
+                nn.BatchNorm1d(out_channels)
+            )
+
+    def forward(self, x):
+        # 1. Ham veriyi sakla (Kestirme yol için)
+        identity = x 
+        
+        # 2. Ana yoldan geçir
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+        out = self.dropout(out)
+        
+        out = self.conv2(out)
+        out = self.bn2(out)
+        
+        # 3. [KRİTİK NOKTA] Ana Yol + Kestirme Yol
+        # İşlenmiş veriye, orijinal veriyi (gerekirse boyutu eşitlenmiş) ekliyoruz.
+        out += self.shortcut(identity)
+        
+        # 4. Son aktivasyon
+        out = self.relu(out)
+        
+        return out
 class CafaCNN(nn.Module):
     def __init__(self, num_labels=1500, vocab_size=22, embed_dim=128):
         super(CafaCNN, self).__init__()
@@ -12,26 +59,17 @@ class CafaCNN(nn.Module):
         # padding_idx=0 -> "0" ile doldurduğumuz kısımları 'yok' sayar.
         self.embedding = nn.Embedding(vocab_size, embed_dim, padding_idx=0)
         
-        # 2. KONVOLÜSYON KATMANI (Büyüteç / Desen Arayıcı)
-        # BLOK 1    
-        # in_channels=128 : Embedding'den gelen özellik sayısı.
-        # out_channels=256 : Modelin arayacağı farklı desen sayısı (256 farklı filtre). Yani aynı anda 256 farklı özellik araması yapar.
-        # kernel_size=9   : Büyüteç genişliği. Yan yana 9 amino asidi aynı anda inceler.
-        self.conv1 = nn.Conv1d(in_channels=embed_dim, out_channels=256, kernel_size=9, padding=4)
-        self.relu1 = nn.ReLU()
-        self.dropout1 = nn.Dropout(0.3) # %30 Unutkanlık (Ezber bozucu)
+        # 2. ResNet Katmanları (Eski Conv1/Conv2 yerine)
+        # 128 özellik girer -> 256 özellik çıkar (Derinleşiyor)
+        self.layer1 = ResidualBlock(in_channels=embed_dim, out_channels=256)
         
-        # BLOK 2
-        # İlk katmanın bulduğu 256 özelliği alır -> 512 daha derin özelliğe çevirir
-        self.conv2 = nn.Conv1d(in_channels=256, out_channels=512, kernel_size=7, padding=3)
-        self.relu2 = nn.ReLU()
-        self.dropout2 = nn.Dropout(0.3) # Yine %30 Unutkanlık
+        # 256 özellik girer -> 512 özellik çıkar (Daha da derinleşiyor)
+        self.layer2 = ResidualBlock(in_channels=256, out_channels=512)
         
         # --- 3. LSTM KATMANI (Hafıza) ---
-        # CNN'den çıkan 256 özelliği alır, zaman içindeki ilişkisine bakar.
+        # ResNet'den çıkan 512 özelliği alır, zaman içindeki ilişkisine bakar.
         # hidden_size=128: Hafıza kapasitesi.
         # bidirectional=True: Çift yönlü okuma (Hem ileri hem geri).
-        # Bu yüzden çıktı boyutu 128 * 2 = 256 olacak.
         self.lstm = nn.LSTM(input_size=512, 
                             hidden_size=128, 
                             num_layers=1, 
@@ -49,23 +87,12 @@ class CafaCNN(nn.Module):
         # Adım 1: Sayıları vektöre çevir
         x = self.embedding(x)  
         # Şekil: [Batch, 1024, 128]
-        
-        # Adım 2: Boyutları Düzenle (PyTorch CNN kuralı) -> konvülasyon adımı için gereklidir
-        # PyTorch'un CNN katmanı, kanalları (128 özelliği) ortada ister.
-        # (Batch, Uzunluk, Özellik) -> (Batch, Özellik, Uzunluk) yapıyoruz.
-        x = x.permute(0, 2, 1) 
-        # Şekil: [Batch, 128, 1024]
-        
-        # BLOK 1 İŞLEMLERİ
-        x = self.conv1(x)    # Desen ara
-        x = self.relu1(x)     # Gürültüyü sil
-        x = self.dropout1(x)   # Unutkanlık (Ezber bozma)
-        # Şekil: [Batch, 256, 1]
+        x = x.permute(0, 2, 1)          # -> [Batch, 128, 1024] (CNN formatı)
 
-        # BLOK 2 İŞLEMLERİ
-        x = self.conv2(x)               # -> [Batch, 512, 1024]
-        x = self.relu2(x)
-        x = self.dropout2(x)
+        # --- [YENİ] ResNet Blokları ---
+        # Artık "self.conv1(x)" demiyoruz, bloğa gönderiyoruz, o içeride hallediyor.
+        x = self.layer1(x)              # -> [Batch, 256, 1024]
+        x = self.layer2(x)              # -> [Batch, 512, 1024]
         
         # LSTM BÖLÜMÜ
         # 1. Boyut Çevirme: LSTM, zaman boyutunu (1024) ortada ister.
