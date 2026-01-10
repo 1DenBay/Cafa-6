@@ -151,8 +151,21 @@ def train():
         # D. EN İYİYİ KAYDET
         if val_f1 > best_f1:
             best_f1 = val_f1
-            save_path = os.path.join(project_root, "models", "best_cafa_model.pth")
-            os.makedirs(os.path.dirname(save_path), exist_ok=True)
+
+            # eğer drive da çalışıyorsak modeli oraya kaydetsin
+            drive_model_dir = "/content/drive/MyDrive/Cafa_Models"
+
+            # Eğer kod kendi bilgisayarında çalışıyorsa hata vermesin diye kontrol:
+            if not os.path.exists("/content/drive"):
+                # Kendi bilgisayarınsa normal klasöre kaydet
+                save_dir = os.path.join(project_root, "models")
+            else:
+                # Colab ise Drive'a kaydet
+                save_dir = drive_model_dir
+                
+            os.makedirs(save_dir, exist_ok=True)
+            save_path = os.path.join(save_dir, "best_cafa_model.pth")
+
             torch.save(model.state_dict(), save_path)
             print(f"    💾 Yeni rekor! Model kaydedildi. (Skor: {val_f1:.4f})")
     
