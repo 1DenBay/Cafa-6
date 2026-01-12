@@ -31,8 +31,8 @@ def train():
 
     # Hiperparametreler (Ayar Düğmeleri)
     BATCH_SIZE = 32      # Her seferde kaç protein incelenecek?
-    LEARNING_RATE = 0.0005 # Hatalardan ne kadar hızlı ders çıkarılacak?
-    EPOCHS = 8           # Kitap baştan sona kaç kez okunacak?
+    LEARNING_RATE = 0.0003 # Hatalardan ne kadar hızlı ders çıkarılacak?
+    EPOCHS = 50           # Kitap baştan sona kaç kez okunacak?
     NUM_LABELS = 1500    # Kaç etiket tahmin edilecek?
     THRESHOLD = 0.3      # %30'un üzerindeki ihtimalleri "1" kabul et (Kaggle için kritik ayar)
 
@@ -49,8 +49,7 @@ def train():
     print(f"🔗 Toplam Eşleşen Protein: {len(all_ids)}")
     
     # --- KRİTİK ADIM: Train / Validation Ayrımı ---
-    # Verinin %20'sini saklıyoruz (Sınav için)
-    train_ids, val_ids = train_test_split(all_ids, test_size=0.2, random_state=42)
+    train_ids, val_ids = train_test_split(all_ids, test_size=0.15, random_state=42) # Val setini biraz küçülttük (%20 -> %15), daha çok veriyle eğitsin.
     print(f"📘 Eğitim Seti   : {len(train_ids)} protein")
     print(f"tc Sınav Seti (Val): {len(val_ids)} protein")
 
@@ -74,8 +73,9 @@ def train():
     
     optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
 
-    # Planlayıcı (Her 3 turda hızı düşür)
-    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=3, gamma=0.5)
+    # Planlayıcı (Her 5 turda hızı düşür)
+    # Her 5 turda bir hızı 0.7 ile çarpsın daha sabırlı olacak (Eskisi çok agresifti 0.5 di)
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.7)
 
     # En iyi skoru takip etmek için
     best_f1 = 0.0
