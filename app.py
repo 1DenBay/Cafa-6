@@ -107,3 +107,138 @@ def encode_sequence(seq, max_len=1024):
     # 3. PyTorch Tensörüne Çevirme
     # Model [Batch, Length] formatı bekler. Tek bir protein olduğu için başına boyut ekliyoruz (unsqueeze).
     return torch.tensor(encoded, dtype=torch.long).unsqueeze(0)
+
+
+# --- 4. MODELİ ÖNBELLEĞE AL (Cache) ---
+@st.cache_resource
+def load_engine():
+    """
+    Modeli sadece bir kere yükler ve hafızada tutar. 
+    Her düğmeye basışta tekrar yükleyip zaman kaybetmez.
+    """
+    # Modeli oluştur (Boş beyin)
+    model = CafaModel(NUM_LABELS).to(DEVICE)
+    
+    # Dosya kontrolü
+    if not os.path.exists(MODEL_PATH):
+        st.error(f"🚨 HATA: Model dosyası bulunamadı!\nLütfen şu dosyayı kontrol edin: `{MODEL_PATH}`")
+        return None
+        
+    try:
+        # Ağırlıkları yükle (Dolu beyin)
+        # map_location, GPU'da eğitilen modeli CPU'da açabilmek için gereklidir.
+        state_dict = torch.load(MODEL_PATH, map_location=DEVICE)
+        model.load_state_dict(state_dict)
+        model.eval() # Eğitim modunu kapat, sınav modunu aç
+        return model
+    except Exception as e:
+        st.error(f"Model yüklenirken teknik bir hata oluştu: {e}")
+        return None
+
+
+# --- 5. ARAYÜZ TASARIMI (Görünüm) ---
+st.title("🧬 AI ile Protein Fonksiyon Tahmini (CNN-ResNet-LSTM) ")
+st.markdown("""
+**Deep Learning (CNN + ResNet + LSTM)** mimarisi kullanılarak protein dizilimlerinden fonksiyon tahmini yapar.
+(Bu model Kaggle yarışmasında da kullanılmıştır.)
+""")
+
+# Sayfayı iki sütuna böl: Sol (Ayarlar), Sağ (Sonuçlar)
+col1, col2 = st.columns([1, 2])
+
+with col1:
+    # Sol Panel: Ayarlar ve Dosya Yükleme
+    st.success(f"🚀 Motor: CNN = **ResNet + LSTM**")
+    st.info(f"⚡ Cihaz: **{str(DEVICE).upper()}**")
+    
+    # Güven Eşiği (Threshold): %20 altındaki ihtimalleri gösterme
+    confidence = st.slider("Güven Eşiği", 0.0, 1.0, 0.20, 0.01)
+
+    # Dosya Yükleyici
+    uploaded_file = st.file_uploader("Fasta Dosyası Seçin", type=["fasta", "txt"])
+
+# --- 6. ANALİZ MOTORU (İşlem) ---
+if uploaded_file:
+    # Modeli çağır
+    model = load_engine()
+    
+    if model:
+        # Yüklenen dosyayı oku
+        stringio = StringIO(uploaded_file.getvalue().decode("utf-8"))
+        sequences = []
+        ids = []
+        # Biopython ile Fasta ayrıştırma
+        for record in SeqIO.parse(stringio, "fasta"):
+            ids.append(record.id)
+            sequences.append(str(record.seq))
+        
+        with col2:
+            # Sağ Panel: Sonuç Ekranı
+            st.write(f"### 📂 {len(sequences)} Protein Yüklendi")
+            
+            # Analiz Butonu
+            if st.button("ANALİZİ BAŞLAT", type="primary", use_container_width=True):
+                progress_bar = st.progress(0)
+                results = []
+                
+                with torch.no_grad(): # Tahmin yaparken gradyan hesaplama (Hızlan)
+                    for i, (prot_id, seq) in enumerate(zip(ids, sequences)):
+                        # 1. Veriyi Hazırla (Sayıya çevir)
+                        input_tensor = encode_sequence(seq, MAX_LEN).to(DEVICE)
+                        
+                        # 2. Tahmin Et (Modeli çalıştır)
+                        output = torch.sigmoid(model(input_tensor))
+                        probs = output.cpu().numpy()[0]
+                        
+                        # 3. Sonuçları Filtrele (Eşiği geçenleri al)
+                        found = False
+                        for idx, score in enumerate(probs):
+                            if score > confidence:
+                                results.append({
+                                    "Protein ID": prot_id,
+                                    "GO Term Index": idx, # Etiket dosyası olmadığı için index numarası
+                                    "Olasılık": score
+                                })
+                                found = True
+                        
+                        # İlerleme çubuğunu güncelle
+                        progress_bar.progress((i + 1) / len(sequences))
+                
+                # 4. Tabloyu Oluştur ve Göster
+                if results:
+                    df = pd.DataFrame(results)
+                    st.success("✅ Analiz Tamamlandı")
+                    
+                    # Tabloyu "Olasılık" sütununa göre renklendir (Koyu mavi = Yüksek ihtimal)
+                    st.dataframe(
+                        df.style.format({"Olasılık": "{:.2%}"})
+                          .background_gradient(subset=["Olasılık"], cmap="Blues"),
+                        use_container_width=True
+                    )
+                    
+                    # Excel İndirme Butonu
+                    csv = df.to_csv(index=False).encode('utf-8')
+                    st.download_button(
+                        "📥 Sonuçları Excel (CSV) Olarak İndir",
+                        csv,
+                        "cnn_analiz_sonuclari.csv",
+                        "text/csv"
+                    )
+                else:
+                    st.warning("⚠️ Belirlenen eşiğin üzerinde bir sonuç bulunamadı. Eşiği düşürmeyi deneyin.")
+
+else:
+    # Dosya yüklenmediyse sağ tarafta bilgi mesajı göster
+    with col2:
+        st.image("https://cdn-icons-png.flaticon.com/512/8834/8834080.png", width=150)
+        
+        st.markdown("""
+Burada Sunduğumuz:  "Sürükle - Bırak" basitliğidir. Kullanıcı FASTA dosyasını atar, arkada dönen matematiksel kaosu görmez, sadece sonucu görür.
+""")
+        st.markdown("""
+Veri Güvenliği:  Veriler bir buluta gitmiyor. Her şey kendi bilgisayarınız içide (Localhost) dönüyor.
+""")
+        st.markdown("""
+Çıktı:  Sonucunuzu Excel (CSV) formatında indirilebilir, filtreleyebilir ve renklendirilmiş bir rapor olarak alabilirsiniz.
+""")
+        st.info("👈 Analiz için soldaki panelden bir FASTA dosyası yükleyiniz.")
