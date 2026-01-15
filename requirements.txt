@@ -1,1 +1,7 @@
+Python 3.9+
 transformers
+streamlit
+torch
+pandas
+biopython
+numpy
