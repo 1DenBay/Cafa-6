@@ -78,3 +78,32 @@ class CafaModel(nn.Module): # modelin beyni
         
         # 5. Sonuç: Hangi fonksiyon olduğunu tahmin et
         return self.classifier(x)
+    
+    # --- 3. SÖZLÜK VE ÖN İŞLEME (Preprocessing) ---
+# Protein alfabesi (20 standart amino asit)
+amino_acids = "ACDEFGHIKLMNPQRSTVWY"
+
+# Harfleri sayıya çeviren sözlük (A -> 1, C -> 2 ...)
+vocab = {aa: i+1 for i, aa in enumerate(amino_acids)}
+# Not: 0 numarası "Padding" (boşluk doldurma) için ayrılmıştır.
+# 21 numarası "Bilinmeyen Harf" (Unknown) için kullanılacaktır.
+
+def encode_sequence(seq, max_len=1024):
+    """
+    Gelen protein harflerini (String) modelin anlayacağı sayılara (Tensor) çevirir.
+    """
+    # 1. Harf -> Sayı Dönüşümü
+    # Eğer listede olmayan bir harf gelirse (ör: 'X', 'B') onu 21 yap.
+    encoded = [vocab.get(aa, 21) for aa in seq]
+    
+    # 2. Boyut Ayarlama (Sabit 1024 uzunluk)
+    if len(encoded) > max_len:
+        # Protein çok uzunsa 1024'ten sonrasını kes
+        encoded = encoded[:max_len]
+    else:
+        # Protein kısaysa sonuna 0 ekleyerek 1024'e tamamla (Padding)
+        encoded += [0] * (max_len - len(encoded))
+    
+    # 3. PyTorch Tensörüne Çevirme
+    # Model [Batch, Length] formatı bekler. Tek bir protein olduğu için başına boyut ekliyoruz (unsqueeze).
+    return torch.tensor(encoded, dtype=torch.long).unsqueeze(0)
