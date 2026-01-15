@@ -2,4 +2,4 @@ kaggle.json
 data/
 src/__pycache__/
 .DS_Store
-.ipynb_checkpoints/
+.ipynb_checkpoints/models/best_protbert_model.pth
